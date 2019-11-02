@@ -126,14 +126,14 @@ ws.on('open', function open() {
                         {
                             if( delta.v == 0)
                             {
-                                market.bid.del(delta.p);
+                                market.bid.delete(delta.p);
                             } else {
                                 market.bid.set(delta.p,delta.v);
                             }
                         } else {
                             if( delta.v == 0)
                             {
-                                market.ask.del(delta.p);
+                                market.ask.delete(delta.p);
                             } else {
                                 market.ask.set(delta.p,delta.v);
                             }
