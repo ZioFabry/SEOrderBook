@@ -128,14 +128,14 @@ ws.on('open', function open() {
                             {
                                 market.bid.delete(delta.p);
                             } else {
-                                market.bid.set(delta.p,delta.v);
+                                market.bid.set(delta.p,delta.a);
                             }
                         } else {
                             if( delta.a == 0)
                             {
                                 market.ask.delete(delta.p);
                             } else {
-                                market.ask.set(delta.p,delta.v);
+                                market.ask.set(delta.p,delta.a);
                             }
                         }
     
