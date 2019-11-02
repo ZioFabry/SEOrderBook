@@ -152,12 +152,12 @@ app.get("/subscribe/:coin/:basecoin", (req, res, next) => {
     {
         var pair = markets.get(paircoin);
 
+        pair.lastRequest = Date.now();
+
         if( !pair.subscribed )
         {
             ws.send( JSON.stringify({k: 'request', v: pair.id}) );
         }
-
-        pair.lastRequest = Date.now();
 
         res.json({success: 1});
     } else {
@@ -176,6 +176,9 @@ app.get("/book/:coin/:basecoin", (req, res, next) => {
     if( markets.has(paircoin) )
     {
         var pair = markets.get(paircoin);
+
+        pair.lastRequest = Date.now();
+
         if( !pair.subscribed )
         {
             ws.send( JSON.stringify({k: 'request', v: pair.id}) );
@@ -183,7 +186,6 @@ app.get("/book/:coin/:basecoin", (req, res, next) => {
 
             res.json({error: "Subscribing... please retry"});
         } else {
-            pair.lastRequest = Date.now();
 
             var response = { BuyOrders: [], SellOrders:[] };
 
