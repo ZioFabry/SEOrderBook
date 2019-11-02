@@ -124,14 +124,14 @@ ws.on('open', function open() {
     
                         if( delta.b )
                         {
-                            if( delta.v == 0)
+                            if( delta.a == 0)
                             {
                                 market.bid.delete(delta.p);
                             } else {
                                 market.bid.set(delta.p,delta.v);
                             }
                         } else {
-                            if( delta.v == 0)
+                            if( delta.a == 0)
                             {
                                 market.ask.delete(delta.p);
                             } else {
