@@ -43,101 +43,133 @@ client.get(process.env.MARKETS_URL, function (data, response) {
     //logger.debug("REST_data",data);
     var arr = JSON.parse(data);
     arr.forEach(function(entry) {
-        markets.set( entry[0]+'-'+entry[1], {id: entry[2], subscribed: false, bid: new Map(), ask: new Map(), lastRequest: 0 });
+        markets.set( entry[0]+'-'+entry[1], {id: entry[2], subscribed: false, bid: new Map(), ask: new Map(), lastRequest: 0, lastSnapshotRequest: 0 });
         marketsId.set( entry[2], entry[0]+'-'+entry[1]);
     });
 });
 
-const ws = new WebSocket(process.env.WSS_URL);
+var ws = new WebSocket(process.env.WSS_URL);
+
+var ping = 0;
 
 ws.on('open', function open() {
     logger.debug('WS.open()');
-});
-  
-ws.on('message', function incoming(data) {
-    var msg = JSON.parse(data);
 
-    switch(msg.k)
-    {
-        case "book":
-            msg.v.forEach( function(book) {
-                var id = book.m;
+    ws.on('close', function close() {
+        logger.debug('WS.close()');
 
-                if(marketsId.has(id))
-                {
-                    var pair = marketsId.get(id);
-                    var market = markets.get(pair);
+        setInterval( function(handler) {
+            logger.debug("Reconnecting...")
+            ws = new WebSocket(process.env.WSS_URL);
 
-                    logger.debug('Snapshot of market',pair,'id',id,'received');
-
-                    book.b.forEach( function(entry) {
-                        if( entry.b )
-                        {
-                            market.bid.set(entry.p,entry.a);
-                        } else {
-                            market.ask.set(entry.p,entry.a);
-                        }
-                    });
-
-                    ws.send( JSON.stringify({k: 'subscribe', v: id}) );
-
-                    market.subscribed = true;
-                } else {
-                    logger.error('book: market',id,'not found');
-                }
-            });
-            break;
-
-        case "bookdelta":
-            msg.v.forEach( function(delta) {
-                var id = delta.m;
-
-                if(marketsId.has(id))
-                {
-                    var pair = marketsId.get(id);
-                    var market = markets.get(pair);
-
-                    if( delta.b )
+            clearInterval(handler);
+        }, 2000);
+    });
+      
+    ws.on('ping', function ping(data) {
+        //logger.debug('WS.ping()',data);
+        ws.pong(data);
+    });
+      
+    ws.on('pong', function close(data) {
+        //logger.debug('WS.pong()',data);
+    });
+      
+    ws.on('error', function error(err) {
+        logger.debug('WS.err()',err);
+    });
+      
+    ws.on('message', function incoming(data) {
+        var msg = JSON.parse(data);
+    
+        switch(msg.k)
+        {
+            case "book":
+                msg.v.forEach( function(book) {
+                    var id = book.m;
+    
+                    if(marketsId.has(id))
                     {
-                        if( delta.v == 0)
+                        var pair = marketsId.get(id);
+                        var market = markets.get(pair);
+    
+                        logger.debug('Snapshot of market',pair,'id',id,'received');
+    
+                        book.b.forEach( function(entry) {
+                            if( entry.b )
+                            {
+                                market.bid.set(entry.p,entry.a);
+                            } else {
+                                market.ask.set(entry.p,entry.a);
+                            }
+                        });
+    
+                        ws.send( JSON.stringify({k: 'subscribe', v: id}) );
+    
+                        market.subscribed = true;
+                    } else {
+                        logger.error('book: market',id,'not found');
+                    }
+                });
+                break;
+    
+            case "bookdelta":
+                msg.v.forEach( function(delta) {
+                    var id = delta.m;
+    
+                    if(marketsId.has(id))
+                    {
+                        var pair = marketsId.get(id);
+                        var market = markets.get(pair);
+    
+                        if( delta.b )
                         {
-                            market.bid.del(delta.p);
+                            if( delta.v == 0)
+                            {
+                                market.bid.del(delta.p);
+                            } else {
+                                market.bid.set(delta.p,delta.v);
+                            }
                         } else {
-                            market.bid.set(delta.p,delta.v);
+                            if( delta.v == 0)
+                            {
+                                market.ask.del(delta.p);
+                            } else {
+                                market.ask.set(delta.p,delta.v);
+                            }
+                        }
+    
+                        var sinceLastReq = Date.now() - market.lastRequest;
+                        logger.debug('Delta of market',pair,'id',id,'received (lastReq '+sinceLastReq+'):',JSON.stringify(delta));
+    
+                        if( sinceLastReq > (15*60*1000) ) // Unsubscribe after 15 min of inactivity on this orderbook
+                        {
+                            market.subscribed = false;
+                            market.ask = new Map();
+                            market.bid = new Map();
+                            market.lastRequest = 0;
+                            
+                            ws.send( JSON.stringify({k: 'unsubscribe', v: id}) );
+                            logger.warn('Market',pair,'unsubscribed for inactivity');
                         }
                     } else {
-                        if( delta.v == 0)
-                        {
-                            market.ask.del(delta.p);
-                        } else {
-                            market.ask.set(delta.p,delta.v);
-                        }
+                        logger.error('bookdelta: market',id,'not found');
                     }
+                });
+                break;
+        
+            default:
+                logger.debug('WS.message('+data+')');
+                break;
+        }
+    });
 
-                    var sinceLastReq = Date.now() - market.lastRequest;
-                    logger.debug('Delta of market',pair,'id',id,'received (lastReq '+sinceLastReq+'):',JSON.stringify(delta));
-
-                    if( sinceLastReq > (15*60*1000) ) // Unsubscribe after 15 min of inactivity on this orderbook
-                    {
-                        market.subscribed = false;
-                        market.ask = new Map();
-                        market.bid = new Map();
-                        market.lastRequest = 0;
-                        
-                        ws.send( JSON.stringify({k: 'unsubscribe', v: id}) );
-                        logger.warn('Market',pair,'unsubscribed for inactivity');
-                    }
-                } else {
-                    logger.error('bookdelta: market',id,'not found');
-                }
-            });
-            break;
-    
-        default:
-            logger.debug('WS.message('+data+')');
-            break;
-    }
+    setInterval( function(handler) {
+        //logger.debug('sending ping',++ping)
+        ws.ping( ping );
+    }, 30000);
 });
+  
 
 app.use(cors());
 
@@ -156,10 +188,17 @@ app.get("/subscribe/:coin/:basecoin", (req, res, next) => {
 
         if( !pair.subscribed )
         {
-            ws.send( JSON.stringify({k: 'request', v: pair.id}) );
+            if( Date.now()-pair.lastSnapshotRequest > 60000 )
+            {
+                ws.send( JSON.stringify({k: 'request', v: pair.id}) );
+                pair.lastSnapshotRequest = Date.now();
+                res.json({success: 1});
+            } else {
+                res.json({error: "Subscribing... please retry"});
+            }
+        } else {
+            res.json({success: 1});
         }
-
-        res.json({success: 1});
     } else {
         logger.error('REST: market '+paircoin+' not found')
         res.json({error: 'market '+paircoin+' not found'});
@@ -181,8 +220,11 @@ app.get("/book/:coin/:basecoin", (req, res, next) => {
 
         if( !pair.subscribed )
         {
-            ws.send( JSON.stringify({k: 'request', v: pair.id}) );
-            ws.send( JSON.stringify({k: 'subscribe', v: pair.id}) );
+            if( Date.now()-pair.lastSnapshotRequest > 60000 )
+            {
+                ws.send( JSON.stringify({k: 'request', v: pair.id}) );
+                pair.lastSnapshotRequest = Date.now();
+            }
 
             res.json({error: "Subscribing... please retry"});
         } else {
