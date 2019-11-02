@@ -117,7 +117,7 @@ ws.on('message', function incoming(data) {
                     var sinceLastReq = Date.now() - market.lastRequest;
                     logger.debug('Delta of market',pair,'id',id,'received (lastReq '+sinceLastReq+'):',JSON.stringify(delta));
 
-                    if( sinceLastReq > (5*60*1000) ) // Unsubscribe after 5 min of inactivity
+                    if( sinceLastReq > (15*60*1000) ) // Unsubscribe after 15 min of inactivity on this orderbook
                     {
                         market.subscribed = false;
                         market.ask = new Map();
