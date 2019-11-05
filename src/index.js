@@ -1,123 +1,100 @@
-import 'dotenv/config';
-import cors from 'cors';
+require('dotenv').config();
 
+var cors    = require('cors')
 var express = require('express');
-var app = express();
-var Client = require('node-rest-client').Client;
+var Client  = require('node-rest-client').Client;
+
+var app     = express();
 
 const WebSocket = require('ws');
-const chalk = require('chalk');
-const log = console.log;
+const chalk     = require('chalk');
+const log       = console.log;
 
 const logger = {
-    debug: (...arg) => {
-        log(chalk.gray.bgBlack((new Date).toISOString()), chalk.cyan.bgBlack('DBG '), chalk.gray.bgBlack(...arg))
-    },
-    info: (...arg) => {
-        log(chalk.gray.bgBlack((new Date).toISOString()), chalk.green.bgBlack('INFO'), chalk.cyan.bgBlack(...arg))
-    },
-    warn: (...arg) => {
-        log(chalk.gray.bgBlack((new Date).toISOString()), chalk.black.bgYellowBright('WARN'), chalk.yellow.bgBlack(...arg))
-    },
-    error: (...arg) => {
-        log(chalk.gray.bgBlack((new Date).toISOString()), chalk.yellow.bgRedBright('ERR '), chalk.red.bgBlack(...arg))
-    }
+    debug: (...arg) => { log(chalk.gray.bgBlack((new Date).toISOString()), chalk.cyan.bgBlack('DBG '),         chalk.gray.bgBlack(...arg))   },
+    info:  (...arg) => { log(chalk.gray.bgBlack((new Date).toISOString()), chalk.green.bgBlack('INFO'),        chalk.cyan.bgBlack(...arg))   },
+    warn:  (...arg) => { log(chalk.gray.bgBlack((new Date).toISOString()), chalk.black.bgYellowBright('WARN'), chalk.yellow.bgBlack(...arg)) },
+    error: (...arg) => { log(chalk.gray.bgBlack((new Date).toISOString()), chalk.yellow.bgRedBright('ERR '),   chalk.red.bgBlack(...arg))    }
 };
 
-logger.info("Starting program...");
-logger.info("Retrieving Markets...");
+logger.info( 'Starting program...' );
+logger.info( 'Retrieving Markets from',process.env.MARKETS_URL,'...' );
 
-var options = {
-    mimetypes: {
-        json: ["application/json"]
-    }
-};
+var options = { mimetypes: { json: ["application/json"] } };
 
-var markets = new Map();
+var markets   = new Map();
 var marketsId = new Map();
-
-var client = new Client(options);
+var client    = new Client(options);
 
 client.get(process.env.MARKETS_URL, function (data, response) {
-    // parsed response body as js object
-    //logger.debug("REST_data",data);
     var arr = JSON.parse(data);
+
     arr.forEach(function(entry) {
-        markets.set( entry[0]+'-'+entry[1], {id: entry[2], subscribed: false, bid: new Map(), ask: new Map(), lastRequest: 0, lastSnapshotRequest: 0 });
-        marketsId.set( entry[2], entry[0]+'-'+entry[1]);
-    });
+        markets.set( entry[0]+'-'+entry[1], {id: entry[2], subscribed: false, bid: new Map(), ask: new Map(), lastRequest: 0, lastSnapshotRequest: 0 } );
+        marketsId.set( entry[2], entry[0]+'-'+entry[1] );
+    } );
 });
 
-var ws = new WebSocket(process.env.WSS_URL);
-
+var ws   = new WebSocket(process.env.WSS_URL);
 var ping = 0;
 
-ws.on('open', function open() {
+ws.on( 'open', function open() {
     logger.debug('WS.open()');
 
-    ws.on('close', function close() {
+    ws.on( 'close', function close() {
         logger.debug('WS.close()');
 
         setInterval( function(handler) {
-            logger.debug("Reconnecting...")
-            ws = new WebSocket(process.env.WSS_URL);
+            logger.debug( 'Reconnecting...' )
+            ws = new WebSocket( process.env.WSS_URL );
 
             clearInterval(handler);
         }, 2000);
     });
       
-    ws.on('ping', function ping(data) {
-        //logger.debug('WS.ping()',data);
-        ws.pong(data);
-    });
-      
-    ws.on('pong', function close(data) {
-        //logger.debug('WS.pong()',data);
-    });
-      
-    ws.on('error', function error(err) {
-        logger.debug('WS.err()',err);
-    });
-      
-    ws.on('message', function incoming(data) {
+    ws.on( 'ping',    function ping(data)     { ws.pong(data); } );
+    ws.on( 'pong',    function close(data)    { } );
+    ws.on( 'error',   function error(err)     { logger.debug('WS.err()',err); } );
+
+    ws.on( 'message', function incoming(data) {
         var msg = JSON.parse(data);
     
         switch(msg.k)
         {
-            case "book":
+            case 'book':
                 msg.v.forEach( function(book) {
                     var id = book.m;
     
-                    if(marketsId.has(id))
+                    if( marketsId.has(id) )
                     {
-                        var pair = marketsId.get(id);
+                        var pair   = marketsId.get(id);
                         var market = markets.get(pair);
     
-                        logger.debug('Snapshot of market',pair,'id',id,'received');
+                        logger.debug( 'Snapshot of market', pair, 'id', id, 'received' );
     
                         book.b.forEach( function(entry) {
                             if( entry.b )
                             {
-                                market.bid.set(entry.p,entry.a);
+                                market.bid.set( entry.p,entry.a );
                             } else {
-                                market.ask.set(entry.p,entry.a);
+                                market.ask.set( entry.p,entry.a );
                             }
                         });
     
-                        ws.send( JSON.stringify({k: 'subscribe', v: id}) );
+                        ws.send( JSON.stringify( {k: 'subscribe', v: id} ) );
     
                         market.subscribed = true;
                     } else {
-                        logger.error('book: market',id,'not found');
+                        logger.error( 'book: market', id, 'not found' );
                     }
                 });
                 break;
     
-            case "bookdelta":
+            case 'bookdelta':
                 msg.v.forEach( function(delta) {
                     var id = delta.m;
     
-                    if(marketsId.has(id))
+                    if( marketsId.has(id) )
                     {
                         var pair = marketsId.get(id);
                         var market = markets.get(pair);
@@ -140,45 +117,42 @@ ws.on('open', function open() {
                         }
     
                         var sinceLastReq = Date.now() - market.lastRequest;
-                        logger.debug('Delta of market',pair,'id',id,'received (lastReq '+sinceLastReq+'):',JSON.stringify(delta));
+                        logger.debug( 'Delta of market', pair, 'id', id, 'received (lastReq ', sinceLastReq, '):', JSON.stringify(delta) );
     
                         if( sinceLastReq > (15*60*1000) ) // Unsubscribe after 15 min of inactivity on this orderbook
                         {
-                            market.subscribed = false;
-                            market.ask = new Map();
-                            market.bid = new Map();
+                            market.subscribed  = false;
+                            market.ask         = new Map();
+                            market.bid         = new Map();
                             market.lastRequest = 0;
                             
-                            ws.send( JSON.stringify({k: 'unsubscribe', v: id}) );
-                            logger.warn('Market',pair,'unsubscribed for inactivity');
+                            ws.send( JSON.stringify( {k: 'unsubscribe', v: id} ) );
+                            logger.warn( 'Market', pair, 'unsubscribed for inactivity' );
                         }
                     } else {
-                        logger.error('bookdelta: market',id,'not found');
+                        logger.error( 'bookdelta: market', id, 'not found' );
                     }
                 });
                 break;
         
             default:
-                logger.debug('WS.message('+data+')');
+                logger.debug( 'WS.message(',data,')' );
                 break;
         }
-    });
+    } );
 
-    setInterval( function(handler) {
-        //logger.debug('sending ping',++ping)
-        ws.ping( ping );
-    }, 30000);
-});
+    setInterval( function(handler) { ws.ping( ping ); }, 30000 );
+} );
   
 
-app.use(cors());
+app.use( cors() );
 
-app.get("/subscribe/:coin/:basecoin", (req, res, next) => {
+app.get( '/subscribe/:coin/:basecoin', (req, res, next) => {
     var coin = req.params.coin;
     var basecoin = req.params.basecoin;
     var paircoin = coin+'-'+basecoin;
 
-    logger.info('REST: GET /book/'+coin+'/'+basecoin)
+    logger.info( 'REST: GET /book/'+coin+'/'+basecoin );
 
     if( markets.has(paircoin) )
     {
@@ -190,22 +164,22 @@ app.get("/subscribe/:coin/:basecoin", (req, res, next) => {
         {
             if( Date.now()-pair.lastSnapshotRequest > 60000 )
             {
-                ws.send( JSON.stringify({k: 'request', v: pair.id}) );
+                ws.send( JSON.stringify( {k: 'request', v: pair.id} ) );
                 pair.lastSnapshotRequest = Date.now();
-                res.json({success: 1});
+                res.json( {success: 1} );
             } else {
-                res.json({error: "Subscribing... please retry"});
+                res.json( {error: 'Subscribing... please retry'} );
             }
         } else {
-            res.json({success: 1});
+            res.json( {success: 1} );
         }
     } else {
-        logger.error('REST: market '+paircoin+' not found')
-        res.json({error: 'market '+paircoin+' not found'});
+        logger.error( 'REST: market ', paircoin, ' not found' )
+        res.json( {error: 'market '+paircoin+' not found'} );
     }
-});
+} );
 
-app.get("/book/:coin/:basecoin", (req, res, next) => {
+app.get( '/book/:coin/:basecoin', (req, res, next) => {
     var coin = req.params.coin;
     var basecoin = req.params.basecoin;
     var paircoin = coin+'-'+basecoin;
@@ -250,12 +224,13 @@ app.get("/book/:coin/:basecoin", (req, res, next) => {
             res.json(response);
         }
     } else {
-        logger.error('REST: market '+paircoin+' not found')
+        logger.error('REST: market ', paircoin, ' not found')
+
         res.json({error: 'market '+paircoin+' not found'});
     }
-});
+} );
 
-app.listen(process.env.PORT, () => {
-    logger.info('REST: Server running on port',process.env.PORT);
-});
+app.listen( process.env.PORT, () => {
+    logger.info( 'REST: Server running on port', process.env.PORT );
+} );
 
