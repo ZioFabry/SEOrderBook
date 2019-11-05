@@ -4,8 +4,9 @@
   "description": "SouthXChange Order Book Wrapper",
   "main": "index.js",
   "scripts": {
-    "start": "nodemon --exec babel-node src/index.js",
-    "debug": "nodemon --exec babel-node debug src/index.js"
+    "start": "forever start -a --uid SEOrderBook src/index.js",
+    "restart": "forever restart SEOrderBook",
+    "stop": "forever stop SEOrderBook"
   },
   "author": "ZioFabry",
   "license": "ISC",
