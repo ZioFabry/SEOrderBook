@@ -37,6 +37,7 @@ client.get(process.env.MARKETS_URL, function (data, response) {
 
 var ws   = new WebSocket(process.env.WSS_URL);
 var ping = 0;
+var lastDelta = Date.now();
 
 ws.on( 'open', function open() {
     logger.debug('WS.open()');
@@ -51,27 +52,27 @@ ws.on( 'open', function open() {
             clearInterval(handler);
         }, 2000);
     });
-      
+
     ws.on( 'ping',    function ping(data)     { ws.pong(data); } );
     ws.on( 'pong',    function close(data)    { } );
     ws.on( 'error',   function error(err)     { logger.debug('WS.err()',err); } );
 
     ws.on( 'message', function incoming(data) {
         var msg = JSON.parse(data);
-    
+
         switch(msg.k)
         {
             case 'book':
                 msg.v.forEach( function(book) {
                     var id = book.m;
-    
+
                     if( marketsId.has(id) )
                     {
                         var pair   = marketsId.get(id);
                         var market = markets.get(pair);
-    
+
                         logger.debug( 'Snapshot of market', pair, 'id', id, 'received' );
-    
+
                         book.b.forEach( function(entry) {
                             if( entry.b )
                             {
@@ -80,25 +81,27 @@ ws.on( 'open', function open() {
                                 market.ask.set( entry.p,entry.a );
                             }
                         });
-    
+
                         ws.send( JSON.stringify( {k: 'subscribe', v: id} ) );
-    
+
                         market.subscribed = true;
                     } else {
                         logger.error( 'book: market', id, 'not found' );
                     }
                 });
                 break;
-    
+
             case 'bookdelta':
                 msg.v.forEach( function(delta) {
                     var id = delta.m;
-    
+
+                    lastDelta = Date.now();
+
                     if( marketsId.has(id) )
                     {
                         var pair = marketsId.get(id);
                         var market = markets.get(pair);
-    
+
                         if( delta.b )
                         {
                             if( delta.a == 0)
@@ -115,17 +118,17 @@ ws.on( 'open', function open() {
                                 market.ask.set(delta.p,delta.a);
                             }
                         }
-    
+
                         var sinceLastReq = Date.now() - market.lastRequest;
                         logger.debug( 'Delta of market', pair, 'id', id, 'received (lastReq ', sinceLastReq, '):', JSON.stringify(delta) );
-    
+
                         if( sinceLastReq > (15*60*1000) ) // Unsubscribe after 15 min of inactivity on this orderbook
                         {
                             market.subscribed  = false;
                             market.ask         = new Map();
                             market.bid         = new Map();
                             market.lastRequest = 0;
-                            
+
                             ws.send( JSON.stringify( {k: 'unsubscribe', v: id} ) );
                             logger.warn( 'Market', pair, 'unsubscribed for inactivity' );
                         }
@@ -134,7 +137,7 @@ ws.on( 'open', function open() {
                     }
                 });
                 break;
-        
+
             default:
                 logger.debug( 'WS.message(',data,')' );
                 break;
@@ -143,7 +146,6 @@ ws.on( 'open', function open() {
 
     setInterval( function(handler) { ws.ping( ping ); }, 30000 );
 } );
-  
 
 app.use( cors() );
 
@@ -186,6 +188,12 @@ app.get( '/book/:coin/:basecoin', (req, res, next) => {
 
     logger.info('REST: GET /book/'+coin+'/'+basecoin)
 
+    if( Date.now()-lastDelta > (15*60*1000) )
+    {
+        logger.info('REST: something is wrong, 15 mins without delta, exiting...');
+        process.exit(1);
+    }
+
     if( markets.has(paircoin) )
     {
         var pair = markets.get(paircoin);
@@ -207,7 +215,7 @@ app.get( '/book/:coin/:basecoin', (req, res, next) => {
 
             const sortAsc  = (a,b) => a[0] > b[0] ? 1 : -1;
             const sortDesc = (a,b) => a[0] < b[0] ? 1 : -1;
-            
+
             var buy  = new Map([...pair.bid].sort(sortDesc));
             var sell = new Map([...pair.ask].sort(sortAsc));
 
