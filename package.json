@@ -4,7 +4,7 @@
   "description": "SouthXChange Order Book Wrapper",
   "main": "index.js",
   "scripts": {
-    "start": "forever start -a --uid SEOrderBook src/index.js",
+    "start": "forever start -a -w --uid SEOrderBook src/index.js",
     "restart": "forever restart SEOrderBook",
     "stop": "forever stop SEOrderBook"
   },
